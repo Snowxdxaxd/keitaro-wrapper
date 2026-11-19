@@ -93,7 +93,7 @@ class KeitaroClient:
 
     async def _ensure_named(self, list_path: str, create_path: str, name: str) -> dict[str, Any]:
         """Возвращает запись с нужным name; если нет — создаёт."""
-        items = await self._request("GET", list_path)
+        items = await self._request("GET", list_path, params={"limit": self.LIST_LIMIT})
         for item in items:
             if str(item.get("name", "")).strip().lower() == name.strip().lower():
                 return item
@@ -201,7 +201,10 @@ class KeitaroClient:
         base = round(100 / n, 2)
         weights = [base] * n
         weights[-1] = round(100 - base * (n - 1), 2)
-        return [dict(item, share=w) for item, w in zip(items, weights)]
+        # старый ключ weight удаляем: рядом с share он давал бы
+        # противоречивые значения ротации
+        cleaned = [{k: v for k, v in item.items() if k != "weight"} for item in items]
+        return [dict(item, share=w) for item, w in zip(cleaned, weights)]
 
     @staticmethod
     def editable_fields(campaign: dict[str, Any]) -> dict[str, Any]:

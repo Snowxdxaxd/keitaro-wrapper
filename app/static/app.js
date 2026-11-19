@@ -10,7 +10,13 @@ async function api(path, options = {}) {
     ...options,
   });
   const body = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(body.detail || `HTTP ${resp.status}`);
+  if (!resp.ok) {
+    let message = body.detail;
+    if (Array.isArray(message)) {
+      message = message.map((d) => d.msg || JSON.stringify(d)).join("; ");
+    }
+    throw new Error(message || `HTTP ${resp.status}`);
+  }
   return body;
 }
 
@@ -64,10 +70,19 @@ async function loadHistory() {
   tbody.innerHTML = "";
   data.items.forEach((r) => {
     const tr = document.createElement("tr");
-    const when = new Date(r.created_at).toLocaleString("ru-RU");
-    const names = { create: "создание", add_offer: "добавление оффера", remove_offer: "удаление оффера" };
-    tr.innerHTML = `<td>${when}</td><td>${names[r.action] || r.action}</td>` +
-      `<td>[${r.campaign_id ?? "—"}] ${r.campaign_name}</td><td>${JSON.stringify(r.details)}</td>`;
+    const cells = [
+      new Date(r.created_at).toLocaleString("ru-RU"),
+      ({ create: "создание", add_offer: "добавление оффера", remove_offer: "удаление оффера" })[r.action] || r.action,
+      `[${r.campaign_id ?? "—"}] ${r.campaign_name}`,
+      JSON.stringify(r.details),
+    ];
+    // текст через textContent: имя кампании приходит из POST без авторизации —
+    // innerHTML здесь превратился бы в stored XSS
+    cells.forEach((value) => {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    });
     tbody.appendChild(tr);
   });
 }
@@ -103,7 +118,7 @@ function renderFlow(flow) {
       const label = document.createElement("span");
       label.textContent = `[${o.offer_id}]`;
       const right = document.createElement("span");
-      const pct = total ? ((o.weight / total) * 100).toFixed(2) : "0.00";
+      const pct = total ? ((o.share / total) * 100).toFixed(2) : "0.00";
       right.innerHTML = `<span class="weight">доля ${o.share} (${pct}%)</span> ` +
         `<button class="remove" data-offer="${o.offer_id}">удалить</button>`;
       row.appendChild(label);

@@ -99,3 +99,30 @@ class TestReviewFixes:
     def test_blank_name_after_strip_returns_422(self, api_client):
         resp = api_client.post("/api/campaigns", json={"name": "   ", "geo": "AU", "offer_id": 4000})
         assert resp.status_code == 422
+
+    def test_history_dates_marked_as_utc(self, api_client):
+        # SQLite отдаёт наивное UTC время — сериализация должна добавлять Z,
+        # иначе new Date() в браузере показывает время со сдвигом пояса
+        api_client.post("/api/campaigns", json={"name": "campaign1", "geo": "AU", "offer_id": 4000})
+        data = api_client.get("/api/history").json()
+        assert data["items"], "журнал пуст"
+        assert data["items"][0]["created_at"].endswith("Z")
+
+    def test_name_longer_than_255_with_prefix_returns_422(self, api_client):
+        resp = api_client.post("/api/campaigns", json={"name": "x" * 250, "geo": "AU", "offer_id": 4000})
+        assert resp.status_code == 422
+
+    def test_put_items_do_not_carry_weight_key(self, api_client):
+        # равные доли пишутся в share; старый ключ weight не должен соседствовать
+        import conftest
+        api_client.post("/api/campaigns/2/offers", json={"offer_id": 4000})
+        put = conftest.STATE.get("last_put_body") or {}
+        offers_flow = next(
+            f for f in put["schema"]["flows"] if f["scheme"]["type"] == "offers"
+        )
+        for item in offers_flow["scheme"]["items"]:
+            assert "share" in item and "weight" not in item
+
+    def test_add_offer_unknown_campaign_returns_404(self, api_client):
+        resp = api_client.post("/api/campaigns/999999/offers", json={"offer_id": 4000})
+        assert resp.status_code == 404

@@ -66,7 +66,13 @@ def index() -> FileResponse:
 @app.get("/api/reference")
 async def reference(keitaro: KeitaroClient = Depends(get_keitaro)) -> dict:
     """Справочники для UI: домены, группы, источники, офферы."""
-    domains, groups, sources, offers = await keitaro.list_domains(), await keitaro.list_groups(), await keitaro.list_sources(), await keitaro.list_offers()
+    try:
+        domains = await keitaro.list_domains()
+        groups = await keitaro.list_groups()
+        sources = await keitaro.list_sources()
+        offers = await keitaro.list_offers()
+    except KeitaroError as exc:
+        raise HTTPException(502, str(exc)) from exc
     return {
         "domains": [{"id": d.get("id"), "name": d.get("name")} for d in domains],
         "groups": [{"id": g.get("id"), "name": g.get("name")} for g in groups],
@@ -79,7 +85,10 @@ async def reference(keitaro: KeitaroClient = Depends(get_keitaro)) -> dict:
 
 @app.get("/api/campaigns")
 async def campaigns(keitaro: KeitaroClient = Depends(get_keitaro)) -> dict:
-    items = await keitaro.list_campaigns()
+    try:
+        items = await keitaro.list_campaigns()
+    except KeitaroError as exc:
+        raise HTTPException(502, str(exc)) from exc
     prefix = settings.campaign_name_prefix
     return {
         "prefix": prefix,
@@ -149,6 +158,8 @@ async def create_campaign(
         raise HTTPException(502, str(exc)) from exc
 
     campaign_id = created.get("id")
+    if len(name) > 255:
+        raise HTTPException(422, "имя кампании с префиксом длиннее 255 символов")
     _log(db, "create", campaign_id, name, geo=req.geo, offer_id=req.offer_id, domain=domain.get("name"))
     return {"id": campaign_id, "name": name, "url": f"{settings.keitaro_base_url}/admin/campaigns/{campaign_id}"}
 
@@ -163,7 +174,12 @@ async def add_offer(
     try:
         updated = await keitaro.add_offer(campaign_id, req.offer_id)
     except KeitaroError as exc:
-        status = 400 if "уже есть" in str(exc) or "нет потока" in str(exc) else 502
+        if exc.status_code == 404:
+            status = 404
+        elif "уже есть" in str(exc) or "нет потока" in str(exc):
+            status = 400
+        else:
+            status = 502
         raise HTTPException(status, str(exc)) from exc
     _log(db, "add_offer", campaign_id, updated.get("name", ""), offer_id=req.offer_id)
     return {"ok": True, "campaign_id": campaign_id, "offer_id": req.offer_id}
@@ -179,7 +195,16 @@ async def remove_offer(
     try:
         updated = await keitaro.remove_offer(campaign_id, offer_id)
     except KeitaroError as exc:
-        status = 400 if "нет в кампании" in str(exc) or "последний оффер" in str(exc) or "нет потока" in str(exc) else 502
+        if exc.status_code == 404:
+            status = 404
+        elif (
+            "нет в кампании" in str(exc)
+            or "последний оффер" in str(exc)
+            or "нет потока" in str(exc)
+        ):
+            status = 400
+        else:
+            status = 502
         raise HTTPException(status, str(exc)) from exc
     _log(db, "remove_offer", campaign_id, updated.get("name", ""), offer_id=offer_id)
     return {"ok": True, "campaign_id": campaign_id, "offer_id": offer_id}
@@ -192,7 +217,9 @@ def history(db=Depends(get_db)) -> dict:
         "items": [
             {
                 "id": r.id,
-                "created_at": r.created_at.isoformat(),
+                # SQLite хранит наивное UTC время — добавляем Z, чтобы
+                # new Date() в браузере парсил его как UTC, а не локальное
+                "created_at": r.created_at.isoformat() + ("" if r.created_at.tzinfo else "Z"),
                 "action": r.action,
                 "campaign_id": r.campaign_id,
                 "campaign_name": r.campaign_name,
