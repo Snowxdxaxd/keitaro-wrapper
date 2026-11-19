@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keitaro wrapper — кампании и офферы</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Keitaro wrapper</h1>
+    <span id="connection" class="badge">…</span>
+  </header>
+
+  <main>
+    <section class="card" id="creator">
+      <h2>Создать кампанию</h2>
+      <label>Название (префикс подставится сам)
+        <input id="name" placeholder="campaign1">
+      </label>
+      <label>Гео-код страны (первый поток)
+        <input id="geo" list="geo-list" placeholder="AU" maxlength="2">
+        <datalist id="geo-list"></datalist>
+      </label>
+      <label>Оффер (второй поток)
+        <select id="offer-create"></select>
+      </label>
+      <label>Домен
+        <select id="domain"></select>
+      </label>
+      <div class="hint">Группа/источник: <b id="group-name"></b> / <b id="source-name"></b> (создадутся автоматически, если нет)</div>
+      <button id="btn-create">Создать кампанию</button>
+      <div id="create-result" class="result"></div>
+    </section>
+
+    <section class="card" id="editor">
+      <h2>Редактор офферов</h2>
+      <label>Кампания
+        <select id="campaign"><option value="">— выберите кампанию —</option></select>
+      </label>
+      <div id="flows"></div>
+      <div class="add-row" id="add-offer-row" hidden>
+        <select id="offer-add"></select>
+        <button id="btn-add">Добавить оффер</button>
+      </div>
+    </section>
+
+    <section class="card" id="history">
+      <h2>История действий</h2>
+      <table>
+        <thead><tr><th>Когда</th><th>Действие</th><th>Кампания</th><th>Детали</th></tr></thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

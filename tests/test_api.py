@@ -1,0 +1,77 @@
+"""API-тесты обёртки: создание кампании, редактор, журнал."""
+
+from decimal import Decimal
+
+
+def test_create_campaign_adds_prefix_and_logs(api_client):
+    resp = api_client.post(
+        "/api/campaigns",
+        json={"name": "campaign1", "geo": "au", "offer_id": 4000},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["name"] == "test_mkrtchyan_campaign1"
+    assert data["id"] >= 100
+
+
+def test_geo_validation(api_client):
+    resp = api_client.post(
+        "/api/campaigns", json={"name": "x", "geo": "auu", "offer_id": 4000}
+    )
+    assert resp.status_code == 422
+
+
+def test_campaign_detail_returns_normalized_flows(api_client):
+    resp = api_client.get("/api/campaigns/2")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == 2
+    first, second = data["flows"]
+    assert first["redirect_url"] == "https://google.com"
+    assert first["conditions"][0]["values"] == ["AU"]
+    assert second["offers"] == [
+        {"offer_id": 3749, "share": 50},
+        {"offer_id": 3717, "share": 50},
+    ]
+
+
+def test_add_offer_via_api(api_client):
+    resp = api_client.post("/api/campaigns/2/offers", json={"offer_id": 4000})
+    assert resp.status_code == 200
+    detail = api_client.get("/api/campaigns/2").json()
+    offers = detail["flows"][1]["offers"]
+    assert [o["offer_id"] for o in offers] == [3749, 3717, 4000]
+    total = sum(Decimal(str(o["share"])) for o in offers)
+    assert total == Decimal("100.00")
+
+
+def test_add_duplicate_offer_via_api_returns_400(api_client):
+    resp = api_client.post("/api/campaigns/2/offers", json={"offer_id": 3749})
+    assert resp.status_code == 400
+    assert "уже есть" in resp.json()["detail"]
+
+
+def test_remove_offer_via_api(api_client):
+    resp = api_client.delete("/api/campaigns/2/offers/3749")
+    assert resp.status_code == 200
+    offers = api_client.get("/api/campaigns/2").json()["flows"][1]["offers"]
+    assert [o["offer_id"] for o in offers] == [3717]
+    assert offers[0]["share"] == 100
+
+
+def test_cannot_remove_last_offer_via_api(api_client):
+    api_client.delete("/api/campaigns/2/offers/3749")
+    resp = api_client.delete("/api/campaigns/2/offers/3717")
+    assert resp.status_code == 400
+    assert "последний оффер" in resp.json()["detail"]
+
+
+def test_history_written_for_actions(api_client):
+    api_client.post("/api/campaigns", json={"name": "campaign1", "geo": "AU", "offer_id": 4000})
+    api_client.post("/api/campaigns/2/offers", json={"offer_id": 4000})
+    api_client.delete("/api/campaigns/2/offers/3749")
+    data = api_client.get("/api/history").json()
+    actions = [i["action"] for i in data["items"]]
+    assert actions.count("create") >= 1
+    assert actions.count("add_offer") >= 1
+    assert actions.count("remove_offer") >= 1
