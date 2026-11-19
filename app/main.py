@@ -30,8 +30,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Keitaro wrapper", lifespan=lifespan)
 
 
-def get_keitaro() -> KeitaroClient:
-    return KeitaroClient()
+async def get_keitaro() -> KeitaroClient:
+    client = KeitaroClient()
+    try:
+        yield client
+    finally:
+        await client.aclose()
 
 
 def get_db():
@@ -96,7 +100,8 @@ async def campaign_detail(campaign_id: int, keitaro: KeitaroClient = Depends(get
     try:
         c = await keitaro.get_campaign(campaign_id)
     except KeitaroError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        status = exc.status_code if exc.status_code == 404 else 502
+        raise HTTPException(status, str(exc)) from exc
     flows = []
     for flow in c.get("schema", {}).get("flows", []):
         scheme = flow.get("scheme", {})
@@ -127,6 +132,8 @@ async def create_campaign(
         source = await keitaro.ensure_source(settings.keitaro_source_name)
         domain = await keitaro.ensure_domain(req.domain_id)
         name = req.name.strip()
+        if not name:
+            raise HTTPException(422, "название кампании не может быть пустым")
         if not name.startswith(settings.campaign_name_prefix):
             name = settings.campaign_name_prefix + name
         payload = keitaro.build_create_payload(

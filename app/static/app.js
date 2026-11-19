@@ -21,6 +21,7 @@ function setResult(el, text, ok) {
 
 async function loadReference() {
   const ref = await api("/api/reference");
+  referenceOffers = ref.offers;
   $("group-name").textContent = ref.group_name;
   $("source-name").textContent = ref.source_name;
 
@@ -116,6 +117,8 @@ function renderFlow(flow) {
   return div;
 }
 
+let referenceOffers = [];
+
 async function loadCampaignDetail() {
   const id = $("campaign").value;
   const flowsEl = $("flows");
@@ -126,13 +129,35 @@ async function loadCampaignDetail() {
   const c = await api(`/api/campaigns/${id}`);
   c.flows.forEach((f) => flowsEl.appendChild(renderFlow(f)));
 
-  const hasOffersFlow = c.flows.some((f) => f.offers);
+  const offersFlow = c.flows.find((f) => f.offers);
+  const hasOffersFlow = Boolean(offersFlow);
   $("add-offer-row").hidden = !hasOffersFlow;
   if (hasOffersFlow) {
     flowsEl.querySelectorAll("button.remove").forEach((btn) => {
       btn.addEventListener("click", () => removeOffer(id, btn.dataset.offer));
     });
+    refreshOfferAddSelect(offersFlow.offers.map((o) => Number(o.offer_id)));
   }
+}
+
+function refreshOfferAddSelect(existingIds) {
+  const sel = $("offer-add");
+  sel.innerHTML = "";
+  const available = referenceOffers.filter((o) => !existingIds.includes(o.id));
+  if (!available.length) {
+    const opt = document.createElement("option");
+    opt.textContent = "— все офферы уже в ротации —";
+    opt.disabled = true;
+    sel.appendChild(opt);
+    $("btn-add").disabled = true;
+    return;
+  }
+  $("btn-add").disabled = false;
+  available.forEach((o) => {
+    const opt = document.createElement("option");
+    opt.value = o.id; opt.textContent = `[${o.id}] ${o.name}`;
+    sel.appendChild(opt);
+  });
 }
 
 async function removeOffer(campaignId, offerId) {

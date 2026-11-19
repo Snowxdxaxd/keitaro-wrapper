@@ -15,6 +15,10 @@ from ..config import settings
 class KeitaroError(RuntimeError):
     """Ошибка API Keitaro (сеть, статус, неожиданный ответ)."""
 
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class KeitaroClient:
     """Асинхронный клиент. Заголовок Api-Key обязателен для всех запросов."""
@@ -36,30 +40,51 @@ class KeitaroClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def _request(self, method: str, path: str, json: Any | None = None) -> Any:
-        resp = await self._client.request(method, path, json=json)
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        json: Any | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        resp = await self._client.request(method, path, json=json, params=params)
         if resp.status_code >= 400:
             raise KeitaroError(
-                f"Keitaro {method} {path} → HTTP {resp.status_code}: {resp.text[:300]}"
+                f"Keitaro {method} {path} → HTTP {resp.status_code}: {resp.text[:300]}",
+                status_code=resp.status_code,
             )
         return resp.json()
 
     # --- справочники -------------------------------------------------------
+    # Инстанс общий для всех кандидатов: кампаний и офферов сотни,
+    # поэтому у списков явно поднимаем лимит.
+
+    LIST_LIMIT = 1000
 
     async def list_domains(self) -> list[dict[str, Any]]:
-        return await self._request("GET", "/admin/api/v1/domains")
+        return await self._request(
+            "GET", "/admin/api/v1/domains", params={"limit": self.LIST_LIMIT}
+        )
 
     async def list_groups(self) -> list[dict[str, Any]]:
-        return await self._request("GET", "/admin/api/v1/groups")
+        return await self._request(
+            "GET", "/admin/api/v1/groups", params={"limit": self.LIST_LIMIT}
+        )
 
     async def list_sources(self) -> list[dict[str, Any]]:
-        return await self._request("GET", "/admin/api/v1/sources")
+        return await self._request(
+            "GET", "/admin/api/v1/sources", params={"limit": self.LIST_LIMIT}
+        )
 
     async def list_offers(self) -> list[dict[str, Any]]:
-        return await self._request("GET", "/admin/api/v1/offers")
+        return await self._request(
+            "GET", "/admin/api/v1/offers", params={"limit": self.LIST_LIMIT}
+        )
 
     async def list_campaigns(self) -> list[dict[str, Any]]:
-        return await self._request("GET", "/admin/api/v1/campaigns")
+        return await self._request(
+            "GET", "/admin/api/v1/campaigns", params={"limit": self.LIST_LIMIT}
+        )
 
     async def get_campaign(self, campaign_id: int) -> dict[str, Any]:
         return await self._request("GET", f"/admin/api/v1/campaigns/{campaign_id}")
@@ -178,6 +203,27 @@ class KeitaroClient:
         weights[-1] = round(100 - base * (n - 1), 2)
         return [dict(item, share=w) for item, w in zip(items, weights)]
 
+    @staticmethod
+    def editable_fields(campaign: dict[str, Any]) -> dict[str, Any]:
+        """Только редактируемые поля кампании — без read-only (id, created_at).
+
+        PUT с чужими полями реальный Keitaro может отвергнуть, поэтому в
+        обновление уходит явный белый список.
+        """
+        keys = (
+            "name",
+            "group_id",
+            "source_id",
+            "domain_ids",
+            "state",
+            "cost_model",
+            "cost_currency",
+            "cost_value",
+            "notes",
+            "schema",
+        )
+        return {k: campaign[k] for k in keys if k in campaign}
+
     async def add_offer(self, campaign_id: int, offer_id: int) -> dict[str, Any]:
         campaign = await self.get_campaign(campaign_id)
         flow = self.find_offers_flow(campaign)
@@ -190,7 +236,7 @@ class KeitaroClient:
             raise KeitaroError(f"Оффер {offer_id} уже есть в кампании {campaign_id}")
         items.append({"offer_id": offer_id, "share": 0})
         flow["scheme"]["items"] = self.equal_weights(items)
-        return await self.update_campaign(campaign_id, campaign)
+        return await self.update_campaign(campaign_id, self.editable_fields(campaign))
 
     async def remove_offer(self, campaign_id: int, offer_id: int) -> dict[str, Any]:
         campaign = await self.get_campaign(campaign_id)
@@ -205,7 +251,7 @@ class KeitaroClient:
             raise KeitaroError(f"Оффера {offer_id} нет в кампании {campaign_id}")
         if not rest:
             raise KeitaroError(
-                "Нельзя удалить последний оффер: поток должен вести хотя бы на один оффер"
+                "Нельзя удалить последний оффер: поток должен вести хотя бы один оффер"
             )
         flow["scheme"]["items"] = self.equal_weights(rest)
-        return await self.update_campaign(campaign_id, campaign)
+        return await self.update_campaign(campaign_id, self.editable_fields(campaign))

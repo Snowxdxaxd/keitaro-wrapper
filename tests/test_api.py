@@ -1,5 +1,7 @@
 """API-тесты обёртки: создание кампании, редактор, журнал."""
 
+import unittest
+
 from decimal import Decimal
 
 
@@ -75,3 +77,25 @@ def test_history_written_for_actions(api_client):
     assert actions.count("create") >= 1
     assert actions.count("add_offer") >= 1
     assert actions.count("remove_offer") >= 1
+
+
+class TestReviewFixes:
+    """Регрессии по итогам ревью: контракт PUT, 404-маппинг, пустое имя."""
+
+    def test_put_sends_only_editable_fields(self, api_client):
+        # add_offer -> PUT не должен содержать read-only поля (id, created_at)
+        api_client.post("/api/campaigns/2/offers", json={"offer_id": 4000})
+        import conftest
+        put = conftest.STATE.get("last_put_body") or {}
+        assert put, "PUT не зафиксирован"
+        assert "schema" in put and "name" in put
+        for read_only in ("id", "created_at"):
+            assert read_only not in put, f"read-only поле {read_only} ушло в PUT"
+
+    def test_unknown_campaign_returns_404(self, api_client):
+        resp = api_client.get("/api/campaigns/999999")
+        assert resp.status_code == 404
+
+    def test_blank_name_after_strip_returns_422(self, api_client):
+        resp = api_client.post("/api/campaigns", json={"name": "   ", "geo": "AU", "offer_id": 4000})
+        assert resp.status_code == 422

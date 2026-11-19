@@ -116,6 +116,7 @@ def handler(request: httpx.Request) -> httpx.Response:
         cid = int(path.rsplit("/", 1)[1])
         if cid not in STATE["campaigns"]:
             return httpx.Response(404, json={"error": "not found"})
+        STATE["last_put_body"] = body
         STATE["campaigns"][cid].update(body)
         return httpx.Response(200, json=STATE["campaigns"][cid])
     if path.startswith("/admin/api/v1/campaigns/") and method == "GET":
